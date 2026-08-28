@@ -2,33 +2,590 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard de Monitoreo - Atención Terremoto Cali</title>
+  <!-- Tailwind CSS & Chart.js -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    html, body {
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background-color: #f8f9fa;
-    }
-    iframe {
-      width: 100%;
-      height: 100%;
-      border: 0;
-      display: block;
-    }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; }
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
   </style>
 </head>
-<body>
-  <iframe 
-    src="https://script.google.com/macros/s/AKfycbx0ggtgYMBEE4ksCuZcqHxxHWFoUJI3AzORFEe_eAdoSCLbxasij4DRWGl7eIN5vQlRAA/exec" 
-    allow="fullscreen; geolocation; camera; microphone"
-    allowfullscreen>
-  </iframe>
+<body class="p-4 md:p-8 text-slate-800">
+
+  <!-- Header & Filtros -->
+  <div class="max-w-7xl mx-auto mb-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+      <div>
+        <div class="inline-flex items-center gap-2 px-3 py-1 bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-bold rounded-full mb-2">
+          <span class="h-2 w-2 rounded-full bg-indigo-600 animate-pulse"></span> Sistema SBS Cali 2026
+        </div>
+        <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Monitoreo de Albergues y Hoteles</h1>
+        <p class="text-slate-500 text-sm mt-1">
+          Último corte de datos registrado: <span id="lblUltimoCorte" class="font-bold text-slate-900 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200">--</span>
+        </p>
+      </div>
+
+      <!-- Filtros: Calendario y Albergue/Hotel -->
+      <div class="flex flex-wrap items-center gap-4 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+        <div>
+          <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Fecha a consultar</label>
+          <input type="date" id="datePicker" onchange="applyFilters()" class="bg-white border border-slate-300 text-slate-800 text-sm font-semibold rounded-xl px-3.5 py-2 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm">
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Filtrar Punto</label>
+          <select id="shelterFilter" onchange="applyFilters()" class="bg-white border border-slate-300 text-slate-800 text-sm font-semibold rounded-xl px-3.5 py-2 outline-none focus:ring-2 focus:ring-indigo-500 max-w-xs shadow-sm">
+            <option value="ALL">🏢 Todos los Espacios</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div id="loader" class="text-center py-20">
+    <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-indigo-600 border-t-transparent"></div>
+    <p class="mt-4 text-slate-500 font-medium text-sm">Cargando información del formulario...</p>
+  </div>
+
+  <!-- Contenedor Principal -->
+  <div id="dashboardContent" class="max-w-7xl mx-auto hidden space-y-8">
+    
+    <!-- 9 KPI Cards -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-3">
+      <!-- % Ocupación -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm col-span-2 sm:col-span-1 lg:col-span-1">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">% Ocup. Albergues</span>
+        <div id="kpiOcupacionPct" class="text-2xl font-black text-indigo-600 mt-1.5">--</div>
+        <div class="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
+          <div id="kpiBar" class="bg-indigo-600 h-1.5 rounded-full" style="width: 0%"></div>
+        </div>
+        <p class="text-[9px] text-slate-400 mt-1">Excluye Hoteles</p>
+      </div>
+      <!-- Familias -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"># Familias</span>
+        <div id="kpiFamilias" class="text-2xl font-black text-slate-900 mt-1.5">--</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">Grupos</p>
+      </div>
+      <!-- Hombres -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"># Hombres</span>
+        <div id="kpiHombres" class="text-2xl font-black text-slate-900 mt-1.5">--</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">Población</p>
+      </div>
+      <!-- Mujeres -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"># Mujeres</span>
+        <div id="kpiMujeres" class="text-2xl font-black text-slate-900 mt-1.5">--</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">Población</p>
+      </div>
+      <!-- Gestantes -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"># Gestantes</span>
+        <div id="kpiGestantes" class="text-2xl font-black text-pink-600 mt-1.5">--</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">Embarazo</p>
+      </div>
+      <!-- Lactantes -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"># Lactantes</span>
+        <div id="kpiLactantes" class="text-2xl font-black text-fuchsia-600 mt-1.5">--</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">Lactancia</p>
+      </div>
+      <!-- No Binarios -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"># No Binarios</span>
+        <div id="kpiNoBinario" class="text-2xl font-black text-violet-600 mt-1.5">--</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">Identidad</p>
+      </div>
+      <!-- Mascotas -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"># Mascotas</span>
+        <div id="kpiMascotas" class="text-2xl font-black text-amber-600 mt-1.5">--</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">Animales</p>
+      </div>
+      <!-- Discapacidad -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"># Discapacidad</span>
+        <div id="kpiDiscapacidad" class="text-2xl font-black text-rose-600 mt-1.5">--</div>
+        <p class="text-[10px] text-slate-400 mt-0.5">Prioridad</p>
+      </div>
+    </div>
+
+    <!-- Fila de Gráficos -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Evolución Temporal -->
+      <div class="lg:col-span-12 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-base font-bold text-slate-900">Evolución de Ocupación Diaria</h3>
+        <p class="text-xs text-slate-400 mb-4">Total de personas censadas por fecha de reporte</p>
+        <div class="relative h-60">
+          <canvas id="timeChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Ocupación por Albergue/Hotel -->
+      <div class="lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-base font-bold text-slate-900 mb-1">Capacidad vs. Ocupación Actual</h3>
+        <p class="text-xs text-slate-400 mb-4">Espacios con mayor afluencia de personas</p>
+        <div class="relative h-72">
+          <canvas id="shelterBarChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Pirámide Etaria -->
+      <div class="lg:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 class="text-base font-bold text-slate-900 mb-1">Desglose Etario de Población</h3>
+        <p class="text-xs text-slate-400 mb-4">Distribución por rangos etarios censados</p>
+        <div class="relative h-72">
+          <canvas id="ageGroupChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sección de Egresos -->
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6 border-b border-slate-100 pb-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <span class="inline-block p-1.5 bg-amber-100 text-amber-700 rounded-lg text-sm">🚪</span> Indicadores de Salida de Personas
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">Personas que han egresado según causal reportada</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div class="lg:col-span-7 grid grid-cols-2 gap-4">
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">1. Recibieron Subsidio</span>
+            <div id="cntSubsidio" class="text-2xl font-black text-indigo-600 mt-1">0</div>
+            <p class="text-[11px] text-slate-500 mt-0.5">Personas con subsidio asignado</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">2. Apoyo Familiar</span>
+            <div id="cntApoyoFam" class="text-2xl font-black text-indigo-600 mt-1">0</div>
+            <p class="text-[11px] text-slate-500 mt-0.5">Traslado con redes de apoyo</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">3. Albergue a Hotel</span>
+            <div id="cntAlbHotel" class="text-2xl font-black text-indigo-600 mt-1">0</div>
+            <p class="text-[11px] text-slate-500 mt-0.5">Reubicación institucional</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">4. Otras Razones</span>
+            <div id="cntOtras" class="text-2xl font-black text-indigo-600 mt-1">0</div>
+            <p class="text-[11px] text-slate-500 mt-0.5">Otros motivos reportados</p>
+          </div>
+        </div>
+
+        <div class="lg:col-span-5 bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-between h-full">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Otras Causas Expresadas</span>
+              <span id="badgeOtras" class="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[11px] font-bold rounded-full">0 casos</span>
+            </div>
+            <ul id="listOtrasPreview" class="space-y-1.5 text-xs text-slate-600 mb-3">
+              <li class="italic text-slate-400">Sin detalles de otras causas en esta fecha.</li>
+            </ul>
+          </div>
+          <button onclick="openOtrasModal()" class="w-full py-2 bg-white hover:bg-slate-100 text-indigo-600 font-bold text-xs rounded-xl border border-slate-200 shadow-sm transition-colors text-center">
+            Ver listado completo de motivos &rarr;
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabla Detallada -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="p-6 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Detalle de Espacios, Servicios y Necesidades</h3>
+          <p class="text-xs text-slate-400 mt-0.5">Haz clic en la necesidad para desplegar el texto explicativo</p>
+        </div>
+        <input type="text" id="tableSearch" onkeyup="renderTable()" placeholder="Buscar por nombre o servicio..." class="w-full sm:w-72 bg-slate-50 border border-slate-200 text-sm rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+
+      <div class="overflow-x-auto custom-scroll">
+        <table class="w-full text-left text-sm text-slate-600">
+          <thead class="bg-slate-50 text-slate-400 text-[11px] uppercase font-bold border-b border-slate-100 tracking-wider">
+            <tr>
+              <th class="px-5 py-3.5">Hotel o Albergue</th>
+              <th class="px-5 py-3.5 text-center">Tipo</th>
+              <th class="px-5 py-3.5">Servicios Presentes</th>
+              <th class="px-5 py-3.5">Necesidades</th>
+              <th class="px-5 py-3.5 text-center">Cupos Libres</th>
+              <th class="px-5 py-3.5 text-center">% Ocupación</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal Genérico -->
+  <div id="genericModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
+      <div class="flex items-center justify-between mb-4">
+        <h3 id="genericModalTitle" class="text-lg font-bold text-slate-900">Detalle</h3>
+        <button onclick="closeGenericModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+      </div>
+      <div id="genericModalBody" class="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 max-h-80 overflow-y-auto"></div>
+      <div class="mt-5 text-right">
+        <button onclick="closeGenericModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx0ggtgYMBEE4ksCuZcqHxxHWFoUJI3AzORFEe_eAdoSCLbxasij4DRWGl7eIN5vQlRAA/exec";
+
+    let globalData = null;
+    let availableDates = [];
+    let currentOtrasRazones = [];
+    let timeChartInstance = null;
+    let barChartInstance = null;
+    let ageChartInstance = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      fetch(SCRIPT_URL)
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+          return response.json();
+        })
+        .then(data => initDashboard(data))
+        .catch(err => {
+          document.getElementById('loader').innerHTML = `<p class="text-rose-600 font-bold">Error cargando datos: ${err.message}</p>`;
+        });
+    });
+
+    function initDashboard(res) {
+      if (res.error) {
+        document.getElementById('loader').innerHTML = `<p class="text-slate-500">${res.error}</p>`;
+        return;
+      }
+
+      globalData = res.diasData;
+      availableDates = Object.keys(globalData).sort();
+
+      document.getElementById('lblUltimoCorte').textContent = res.ultimaFecha || availableDates[availableDates.length - 1] || '--';
+      document.getElementById('loader').classList.add('hidden');
+      document.getElementById('dashboardContent').classList.remove('hidden');
+
+      const datePicker = document.getElementById('datePicker');
+      datePicker.min = availableDates[0];
+      datePicker.max = availableDates[availableDates.length - 1];
+      datePicker.value = res.ultimaFecha || availableDates[availableDates.length - 1];
+
+      populateShelterFilter();
+      applyFilters();
+    }
+
+    function populateShelterFilter() {
+      const select = document.getElementById('shelterFilter');
+      const allShelters = new Set();
+      availableDates.forEach(date => {
+        globalData[date].registros.forEach(r => allShelters.add(r.nombre));
+      });
+
+      Array.from(allShelters).sort().forEach(nombre => {
+        const opt = document.createElement('option');
+        opt.value = nombre;
+        opt.textContent = nombre.length > 40 ? nombre.substring(0, 38) + '...' : nombre;
+        select.appendChild(opt);
+      });
+    }
+
+    function applyFilters() {
+      const selectedDate = document.getElementById('datePicker').value;
+      const selectedShelter = document.getElementById('shelterFilter').value;
+
+      if (!globalData[selectedDate]) return;
+
+      const dayRecords = globalData[selectedDate].registros;
+      const filtered = selectedShelter === 'ALL' 
+        ? dayRecords 
+        : dayRecords.filter(r => r.nombre === selectedShelter);
+
+      updateKPIs(filtered);
+      renderTimeSeries(selectedShelter);
+      renderBarChart(filtered);
+      renderAgeChart(filtered);
+      updateEgresosSection(filtered);
+      renderTableData(filtered);
+    }
+
+    function updateKPIs(items) {
+      let capAlbergues = 0, ocupAlbergues = 0;
+      let fam = 0, hom = 0, muj = 0, gest = 0, lact = 0, noBin = 0, masc = 0, disc = 0;
+
+      items.forEach(i => {
+        if (!i.isHotel) {
+          capAlbergues += i.capacidad;
+          ocupAlbergues += i.ocupacion;
+        }
+        fam += i.familias;
+        hom += i.hombres;
+        muj += i.mujeres;
+        gest += i.gestantes;
+        lact += i.lactantes;
+        noBin += i.noBinario;
+        masc += i.mascotas;
+        disc += i.discapacidad;
+      });
+
+      const pct = capAlbergues > 0 ? Math.round((ocupAlbergues / capAlbergues) * 100) : 0;
+      document.getElementById('kpiOcupacionPct').textContent = `${pct}%`;
+      document.getElementById('kpiBar').style.width = `${Math.min(pct, 100)}%`;
+      document.getElementById('kpiFamilias').textContent = fam.toLocaleString();
+      document.getElementById('kpiHombres').textContent = hom.toLocaleString();
+      document.getElementById('kpiMujeres').textContent = muj.toLocaleString();
+      document.getElementById('kpiGestantes').textContent = gest.toLocaleString();
+      document.getElementById('kpiLactantes').textContent = lact.toLocaleString();
+      document.getElementById('kpiNoBinario').textContent = noBin.toLocaleString();
+      document.getElementById('kpiMascotas').textContent = masc.toLocaleString();
+      document.getElementById('kpiDiscapacidad').textContent = disc.toLocaleString();
+    }
+
+    function renderTimeSeries(selectedShelter) {
+      const ctx = document.getElementById('timeChart').getContext('2d');
+      const labels = availableDates.map(d => d.substring(5));
+      
+      const serieData = availableDates.map(date => {
+        const recs = globalData[date].registros;
+        if (selectedShelter === 'ALL') {
+          return recs.reduce((sum, r) => sum + r.ocupacion, 0);
+        } else {
+          const match = recs.find(r => r.nombre === selectedShelter);
+          return match ? match.ocupacion : 0;
+        }
+      });
+
+      if (timeChartInstance) timeChartInstance.destroy();
+      timeChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Ocupación',
+            data: serieData,
+            borderColor: '#4f46e5',
+            backgroundColor: 'rgba(79, 70, 229, 0.08)',
+            fill: true,
+            tension: 0.3,
+            borderWidth: 3,
+            pointRadius: 4,
+            pointBackgroundColor: '#4f46e5'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { grid: { color: '#f1f5f9' }, beginAtZero: false },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    function renderBarChart(items) {
+      const ctx = document.getElementById('shelterBarChart').getContext('2d');
+      const sorted = [...items].sort((a,b) => b.ocupacion - a.ocupacion).slice(0, 7);
+
+      if (barChartInstance) barChartInstance.destroy();
+      barChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sorted.map(i => i.nombre.length > 18 ? i.nombre.substring(0, 16) + '...' : i.nombre),
+          datasets: [
+            {
+              label: 'Ocupación',
+              data: sorted.map(i => i.ocupacion),
+              backgroundColor: '#4f46e5',
+              borderRadius: 6
+            },
+            {
+              label: 'Capacidad',
+              data: sorted.map(i => i.capacidad),
+              backgroundColor: '#e2e8f0',
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', align: 'end' } },
+          scales: {
+            y: { grid: { color: '#f1f5f9' }, beginAtZero: true },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    function renderAgeChart(items) {
+      const ctx = document.getElementById('ageGroupChart').getContext('2d');
+      let g0_5 = 0, g6_11 = 0, g12_17 = 0, g18_28 = 0, g29_59 = 0, g60 = 0;
+      items.forEach(i => {
+        g0_5 += i.nna_0_5;
+        g6_11 += i.nna_6_11;
+        g12_17 += i.adol_12_17;
+        g18_28 += i.adultos_18_28;
+        g29_59 += i.adultos_29_59;
+        g60 += i.adultos_mayores;
+      });
+
+      if (ageChartInstance) ageChartInstance.destroy();
+      ageChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['0-5 años', '6-11 años', '12-17 años', '18-28 años', '29-59 años', 'Adultos Mayores'],
+          datasets: [{
+            data: [g0_5, g6_11, g12_17, g18_28, g29_59, g60],
+            backgroundColor: ['#f43f5e', '#fb923c', '#fbbf24', '#34d399', '#38bdf8', '#818cf8'],
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } }
+          }
+        }
+      });
+    }
+
+    function updateEgresosSection(items) {
+      let sub = 0, apFam = 0, albHot = 0, otras = 0;
+      currentOtrasRazones = [];
+
+      items.forEach(i => {
+        sub += i.egresos.subsidio;
+        apFam += i.egresos.apoyoFamiliar;
+        albHot += i.egresos.albergueAHotel;
+        otras += i.egresos.otrasCant;
+        
+        if (i.egresos.otrasMotivo && i.egresos.otrasMotivo !== 'NaN') {
+          currentOtrasRazones.push({
+            lugar: i.nombre,
+            motivo: i.egresos.otrasMotivo,
+            cant: i.egresos.otrasCant
+          });
+        }
+      });
+
+      document.getElementById('cntSubsidio').textContent = sub.toLocaleString();
+      document.getElementById('cntApoyoFam').textContent = apFam.toLocaleString();
+      document.getElementById('cntAlbHotel').textContent = albHot.toLocaleString();
+      document.getElementById('cntOtras').textContent = otras.toLocaleString();
+
+      document.getElementById('badgeOtras').textContent = `${otras} personas`;
+      const previewList = document.getElementById('listOtrasPreview');
+      previewList.innerHTML = '';
+
+      if (currentOtrasRazones.length === 0) {
+        previewList.innerHTML = `<li class="italic text-slate-400">Sin detalles de otras causas en esta fecha.</li>`;
+      } else {
+        currentOtrasRazones.slice(0, 3).forEach(o => {
+          const li = document.createElement('li');
+          li.className = 'truncate text-slate-700 font-medium';
+          li.innerHTML = `• <span class="font-bold text-slate-900">${o.lugar}:</span> ${o.motivo}`;
+          previewList.appendChild(li);
+        });
+      }
+    }
+
+    let currentTableData = [];
+    function renderTableData(items) {
+      currentTableData = items;
+      renderTable();
+    }
+
+    function renderTable() {
+      const search = document.getElementById('tableSearch').value.toLowerCase();
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+
+      const filtered = currentTableData.filter(i => 
+        i.nombre.toLowerCase().includes(search) || 
+        i.servicios.toLowerCase().includes(search) ||
+        i.tipo.toLowerCase().includes(search)
+      );
+
+      filtered.forEach(i => {
+        const isHotel = i.isHotel;
+        let pctCol = '<span class="text-xs font-semibold text-slate-400">N/A (Hotel)</span>';
+        let cuposCol = `<span class="font-bold text-slate-800">${i.cupos}</span>`;
+        
+        if (!isHotel) {
+          const pctFormatted = Math.round((i.pct || 0) * 100);
+          const badgeColor = pctFormatted >= 95 ? 'bg-rose-100 text-rose-700' : (pctFormatted >= 60 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700');
+          pctCol = `<span class="px-2.5 py-1 text-xs font-bold rounded-lg ${badgeColor}">${pctFormatted}%</span>`;
+        } else {
+          cuposCol = '<span class="text-xs font-medium text-slate-400">N/A</span>';
+        }
+
+        const tipoBadge = isHotel 
+          ? '<span class="inline-block px-2.5 py-0.5 text-[11px] font-bold rounded-md bg-amber-50 text-amber-700 border border-amber-100">Hotel</span>'
+          : '<span class="inline-block px-2.5 py-0.5 text-[11px] font-bold rounded-md bg-blue-50 text-blue-700 border border-blue-100">Albergue</span>';
+
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50/80 transition-colors';
+        tr.innerHTML = `
+          <td class="px-5 py-4 font-semibold text-slate-900 max-w-xs">${i.nombre}</td>
+          <td class="px-5 py-4 text-center whitespace-nowrap">${tipoBadge}</td>
+          <td class="px-5 py-4 text-xs text-slate-600 max-w-xs truncate">${i.servicios}</td>
+          <td class="px-5 py-4 max-w-xs">
+            <div onclick="openModal('Necesidades: ${escapeHtml(i.nombre)}', '${escapeHtml(i.necesidades)}')" class="cursor-pointer text-xs text-indigo-600 hover:text-indigo-800 font-medium truncate underline decoration-indigo-300">
+              ${i.necesidades}
+            </div>
+          </td>
+          <td class="px-5 py-4 text-center">${cuposCol}</td>
+          <td class="px-5 py-4 text-center">${pctCol}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function openModal(title, text) {
+      document.getElementById('genericModalTitle').textContent = title;
+      document.getElementById('genericModalBody').innerHTML = `<p>${text}</p>`;
+      document.getElementById('genericModal').classList.remove('hidden');
+    }
+
+    function openOtrasModal() {
+      document.getElementById('genericModalTitle').textContent = 'Otras Razones de Salida Reportadas';
+      if (currentOtrasRazones.length === 0) {
+        document.getElementById('genericModalBody').innerHTML = '<p class="italic text-slate-400">No hay registros adicionales en esta fecha.</p>';
+      } else {
+        let html = '<ul class="space-y-3">';
+        currentOtrasRazones.forEach(r => {
+          html += `<li class="border-b border-slate-200 pb-2">
+            <div class="font-bold text-slate-900 text-xs">${r.lugar} <span class="text-indigo-600 font-normal">(${r.cant} personas)</span></div>
+            <div class="text-slate-600 text-sm mt-0.5">${r.motivo}</div>
+          </li>`;
+        });
+        html += '</ul>';
+        document.getElementById('genericModalBody').innerHTML = html;
+      }
+      document.getElementById('genericModal').classList.remove('hidden');
+    }
+
+    function closeGenericModal() {
+      document.getElementById('genericModal').classList.add('hidden');
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+  </script>
 </body>
 </html>
